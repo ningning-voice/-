@@ -201,8 +201,8 @@ def main():
     history = load_history()
 
     # 수집 한도 증가 (10 -> 15개)
-    reddit_posts = get_reddit_posts(limit=15)
-    dc_posts = get_dc_posts(limit=15)
+    reddit_posts = get_reddit_posts(limit=20)
+    dc_posts = get_dc_posts(limit=100)
 
     print(f"수집 완료 -> Reddit: {len(reddit_posts)}개, DC: {len(dc_posts)}개")
 
