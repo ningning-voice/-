@@ -68,7 +68,7 @@ def send_telegram(title, link, img_url, source_tag="", topic_id=None):
         print(f"❌ 텔레그램 전송 에러: {e}")
         return False
 
-def get_reddit_posts(limit=15):
+def get_reddit_posts(limit=100):
     """최신 레딧 게시글 수집 (hot.rss -> new.rss 변경)"""
     url = f"https://www.reddit.com/r/{SUBREDDIT}/new.rss"
 
@@ -149,7 +149,7 @@ def get_dc_detail(post_url):
         print(f"[DC Detail] 에러 발생 ({post_url}): {e}")
         return None
 
-def get_dc_posts(limit=15):
+def get_dc_posts(limit=100):
     """최신 디시 개념글 수집"""
     url = f"https://gall.dcinside.com/mgallery/board/lists/?id={GALLERY_ID}&exception_mode=recommend"
 
