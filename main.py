@@ -4,12 +4,17 @@ import time
 import requests
 from bs4 import BeautifulSoup
 
-# 1. 파일 저장 경로 설정
+# ============================================================
+# GitHub Actions용 Reddit + DC 크롤러
+# - 실행 후 작업을 끝내고 종료한다.
+# - Telegram polling을 하지 않는다.
+# - 30분마다 GitHub Actions가 이 파일을 실행하는 구조에 맞춰져 있다.
+# ============================================================
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 HISTORY_FILE = os.path.join(BASE_DIR, "sent_combined_history.txt")
 
-# 환경변수에서 가져오되, 노출 방지를 위해 기본값 토큰 삭제
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 CHAT_ID = os.environ.get("CHAT_ID", "@wonhee_thief")
 
 TOPIC_ID_REDDIT = int(os.environ.get("TOPIC_ID_REDDIT", "35"))
@@ -18,95 +23,151 @@ TOPIC_ID_DC = int(os.environ.get("TOPIC_ID_DC", "41"))
 SUBREDDIT = os.environ.get("SUBREDDIT", "wonhee")
 GALLERY_ID = os.environ.get("GALLERY_ID", "wonhee")
 
-# 디시인사이드 차단 방지를 위한 Referer 및 User-Agent 설정
+# Reddit은 RSS에서 한 번에 많이 가져오기 어렵기 때문에
+# 기존처럼 20개만 가져온다.
+REDDIT_LIMIT = int(os.environ.get("REDDIT_LIMIT", "20"))
+DC_LIMIT = int(os.environ.get("DC_LIMIT", "100"))
+
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Referer": "https://gall.dcinside.com/"
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/143.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://gall.dcinside.com/",
 }
 
+
 def load_history():
-    if os.path.exists(HISTORY_FILE):
-        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-            return set(line.strip() for line in f if line.strip())
-    return set()
+    if not os.path.exists(HISTORY_FILE):
+        return set()
+
+    with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+        return {line.strip() for line in f if line.strip()}
+
 
 def save_history(history):
+    # 집합을 다시 파일로 저장. 정렬해서 diff가 안정적으로 보이게 한다.
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-        for post_id in history:
-            f.write(f"{post_id}\n")
+        for post_id in sorted(history):
+            f.write(post_id + "\n")
 
-def send_telegram(title, link, img_url, source_tag="", topic_id=None):
+
+def send_telegram(title, link, img_url=None, source_tag="", topic_id=None):
     caption = f"🔥 [{source_tag}] {title}\n\n🔗 {link}"
-    payload = {"chat_id": CHAT_ID}
+
+    if img_url:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+        payload = {
+            "chat_id": CHAT_ID,
+            "photo": img_url,
+            "caption": caption[:1024],
+        }
+    else:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": CHAT_ID,
+            "text": caption[:4096],
+        }
 
     if topic_id:
         payload["message_thread_id"] = topic_id
 
-    # 이미지 URL 존재 시 sendPhoto, 실패 시 sendMessage로 fallback
-    if img_url:
-        api_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-        payload["photo"] = img_url
-        payload["caption"] = caption[:1000]
-    else:
-        api_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        payload["text"] = caption[:4000]
-
     try:
-        res = requests.post(api_url, data=payload, timeout=10)
-        
-        # 이미지 전송 실패(400 등) 시 텍스트만 재전송 시도
-        if not res.ok and img_url:
-            print(f"⚠️ [{source_tag}] 이미지 전송 실패 ({res.status_code}), 텍스트로 재시도합니다.")
-            api_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-            payload = {"chat_id": CHAT_ID, "text": caption[:4000]}
-            if topic_id:
-                payload["message_thread_id"] = topic_id
-            res = requests.post(api_url, data=payload, timeout=10)
+        response = requests.post(url, data=payload, timeout=20)
 
-        return res.ok
+        # Telegram이 외부 이미지 URL을 직접 가져오지 못할 때 텍스트라도 보낸다.
+        if not response.ok and img_url:
+            print(
+                f"⚠️ 이미지 전송 실패: "
+                f"{response.status_code} {response.text[:250]}"
+            )
+            fallback = {
+                "chat_id": CHAT_ID,
+                "text": caption[:4096],
+            }
+            if topic_id:
+                fallback["message_thread_id"] = topic_id
+
+            response = requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                data=fallback,
+                timeout=20,
+            )
+
+        if not response.ok:
+            print(
+                f"❌ Telegram 전송 실패: "
+                f"{response.status_code} {response.text[:400]}"
+            )
+
+        return response.ok
+
     except Exception as e:
-        print(f"❌ 텔레그램 전송 에러: {e}")
+        print(f"❌ Telegram 요청 에러: {e}")
         return False
 
-def get_reddit_posts(limit=100):
-    """최신 레딧 게시글 수집 (hot.rss -> new.rss 변경)"""
+
+# ============================================================
+# Reddit
+# ============================================================
+
+def get_reddit_posts(limit=20):
     url = f"https://www.reddit.com/r/{SUBREDDIT}/new.rss"
 
     try:
-        res = requests.get(url, headers=HEADERS, timeout=10)
-        if res.status_code != 200:
-            print(f"[Reddit] 접속 실패: Status Code {res.status_code}")
+        response = requests.get(url, headers=HEADERS, timeout=20)
+
+        if response.status_code != 200:
+            print(f"[Reddit] RSS 접속 실패: {response.status_code}")
             return []
 
-        soup = BeautifulSoup(res.text, "xml")  # RSS 파싱을 위해 xml 파서 사용
+        soup = BeautifulSoup(response.text, "xml")
         entries = soup.find_all("entry")[:limit]
 
         posts = []
+
         for entry in entries:
-            post_id_el = entry.find("id")
-            raw_id = post_id_el.text if post_id_el else ""
-            post_id = f"reddit_{raw_id}"
+            id_element = entry.find("id")
+            raw_id = id_element.get_text(strip=True) if id_element else ""
+            if not raw_id:
+                continue
 
-            title_el = entry.find("title")
-            title = title_el.text if title_el else ""
+            title_element = entry.find("title")
+            title = title_element.get_text(strip=True) if title_element else "(제목 없음)"
 
-            link_tag = entry.find("link")
-            link = link_tag["href"] if link_tag and link_tag.has_attr("href") else ""
+            link_element = entry.find("link")
+            link = (
+                link_element.get("href", "")
+                if link_element
+                else ""
+            )
+            if not link:
+                continue
 
-            content_el = entry.find("content")
-            content = content_el.text if content_el else ""
+            content_element = entry.find("content")
+            content = content_element.get_text() if content_element else ""
 
-            # 다양한 이미지 URL 패턴 감지 (.jpeg, 쿼리스트링 포함 대응)
-            img_match = re.search(r'href="(https://i\.redd\.it/[^"]+)"', content)
-            if not img_match:
-                img_match = re.search(r'src="(https://preview\.redd\.it/[^"]+)"', content)
+            img_url = None
 
-            img_url = img_match.group(1) if img_match else None
-            if img_url:
-                img_url = img_url.replace("&amp;", "&")
+            # RSS 안에 원본 이미지가 들어오는 경우
+            match = re.search(
+                r'href="(https://i\.redd\.it/[^"]+)"',
+                content,
+                re.IGNORECASE,
+            )
+            if not match:
+                match = re.search(
+                    r'src="(https://preview\.redd\.it/[^"]+)"',
+                    content,
+                    re.IGNORECASE,
+                )
+
+            if match:
+                img_url = match.group(1).replace("&amp;", "&")
 
             posts.append({
-                "id": post_id,
+                "id": f"reddit_{raw_id}",
                 "title": title,
                 "link": link,
                 "img_url": img_url,
@@ -115,75 +176,100 @@ def get_reddit_posts(limit=100):
             })
 
         return posts
+
     except Exception as e:
         print(f"[Reddit] 파싱 에러: {e}")
         return []
 
+
+# ============================================================
+# DCInside
+# ============================================================
+
 def get_dc_detail(post_url):
-    """디시인사이드 개별 글 이미지 파싱 (절대경로 변환 및 Referer 적용)"""
     try:
-        res = requests.get(post_url, headers=HEADERS, timeout=10)
-        if res.status_code != 200:
-            print(f"[DC Detail] 글 접근 실패 ({res.status_code}): {post_url}")
+        response = requests.get(post_url, headers=HEADERS, timeout=20)
+
+        if response.status_code != 200:
+            print(f"[DC Detail] 접근 실패: {response.status_code}")
             return None
-        
-        soup = BeautifulSoup(res.text, "html.parser")
-        
-        # 본문 영역 탐색 (.write_div 또는 .thum-txtin)
-        write_div = soup.select_one(".write_div") or soup.select_one(".thum-txtin")
+
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        write_div = (
+            soup.select_one(".write_div")
+            or soup.select_one(".thum-txtin")
+        )
         if not write_div:
             return None
 
-        img_tag = write_div.select_one("img")
-        if img_tag and img_tag.has_attr("src"):
-            src = img_tag["src"]
-            # 프로토콜 상대 경로(//image...) 처리 및 절대 경로 변환
-            if src.startswith("//"):
-                src = "https:" + src
-            elif src.startswith("/"):
-                src = "https://gall.dcinside.com" + src
-            return src
+        img = write_div.select_one("img")
+        if not img:
+            return None
 
-        return None
+        src = img.get("src")
+        if not src:
+            return None
+
+        if src.startswith("//"):
+            return "https:" + src
+        if src.startswith("/"):
+            return "https://gall.dcinside.com" + src
+
+        return src
+
     except Exception as e:
-        print(f"[DC Detail] 에러 발생 ({post_url}): {e}")
+        print(f"[DC Detail] 에러: {e}")
         return None
+
 
 def get_dc_posts(limit=100):
-    """최신 디시 개념글 수집"""
-    url = f"https://gall.dcinside.com/mgallery/board/lists/?id={GALLERY_ID}&exception_mode=recommend"
+    url = (
+        "https://gall.dcinside.com/mgallery/board/lists/"
+        f"?id={GALLERY_ID}&exception_mode=recommend"
+    )
 
     try:
-        res = requests.get(url, headers=HEADERS, timeout=10)
-        if res.status_code != 200:
-            print(f"[DC] 접속 실패: Status Code {res.status_code}")
+        response = requests.get(url, headers=HEADERS, timeout=20)
+
+        if response.status_code != 200:
+            print(f"[DC] 접속 실패: {response.status_code}")
             return []
 
-        soup = BeautifulSoup(res.text, "html.parser")
+        soup = BeautifulSoup(response.text, "html.parser")
         rows = soup.select("tr.ub-content.us-post")
 
         posts = []
+
         for row in rows:
             if len(posts) >= limit:
                 break
 
-            gall_num_el = row.select_one(".gall_num")
-            if not gall_num_el or not gall_num_el.text.strip().isdigit():
+            number = row.select_one(".gall_num")
+            if not number:
                 continue
 
-            raw_id = gall_num_el.text.strip()
-            post_id = f"dc_{raw_id}"
-
-            title_el = row.select_one(".gall_tit a")
-            if not title_el:
+            raw_id = number.get_text(strip=True)
+            if not raw_id.isdigit():
                 continue
 
-            title = title_el.text.strip()
-            href = title_el["href"]
-            link = "https://gall.dcinside.com" + href if href.startswith("/") else href
+            title_element = row.select_one(".gall_tit a")
+            if not title_element:
+                continue
+
+            title = title_element.get_text(strip=True)
+            href = title_element.get("href", "")
+            if not href:
+                continue
+
+            link = (
+                "https://gall.dcinside.com" + href
+                if href.startswith("/")
+                else href
+            )
 
             posts.append({
-                "id": post_id,
+                "id": f"dc_{raw_id}",
                 "title": title,
                 "link": link,
                 "source": f"DC {GALLERY_ID}",
@@ -191,52 +277,64 @@ def get_dc_posts(limit=100):
             })
 
         return posts
+
     except Exception as e:
         print(f"[DC] 파싱 에러: {e}")
         return []
 
+
+# ============================================================
+# 실행
+# ============================================================
+
 def main():
-    print(f"📌 히스토리 파일 저장 위치: {HISTORY_FILE}")
+    if not BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN 환경변수가 없습니다.")
 
     history = load_history()
 
-    # 수집 한도 증가 (10 -> 15개)
-    reddit_posts = get_reddit_posts(limit=20)
-    dc_posts = get_dc_posts(limit=100)
+    reddit_posts = get_reddit_posts(REDDIT_LIMIT)
+    dc_posts = get_dc_posts(DC_LIMIT)
 
-    print(f"수집 완료 -> Reddit: {len(reddit_posts)}개, DC: {len(dc_posts)}개")
+    print(
+        f"수집 완료 -> Reddit {len(reddit_posts)}개 / "
+        f"DC {len(dc_posts)}개"
+    )
 
-    combined_posts = []
+    combined = []
     max_len = max(len(reddit_posts), len(dc_posts))
+
+    # 기존처럼 DC와 Reddit을 교차 배치
     for i in range(max_len):
         if i < len(dc_posts):
-            combined_posts.append(dc_posts[i])
+            combined.append(dc_posts[i])
         if i < len(reddit_posts):
-            combined_posts.append(reddit_posts[i])
+            combined.append(reddit_posts[i])
 
-    # 예전 글부터 순서대로 전송
-    for post in reversed(combined_posts):
-        post_id = post["id"]
-
-        if post_id in history:
+    # 새 글이 먼저 들어온 RSS/list와 실제 게시 시점을 고려해
+    # 기존과 동일하게 역순 전송한다.
+    for post in reversed(combined):
+        if post["id"] in history:
             continue
 
         img_url = post.get("img_url")
-        if post_id.startswith("dc_"):
+
+        if post["id"].startswith("dc_"):
             img_url = get_dc_detail(post["link"])
-            time.sleep(0.5)  # 디시 차단 방지를 위한 짧은 딜레이
+            time.sleep(0.5)
 
         if send_telegram(
             post["title"],
             post["link"],
             img_url,
             post["source"],
-            post.get("topic_id"),
+            post["topic_id"],
         ):
+            history.add(post["id"])
             print(f"[성공] [{post['source']}] {post['title']}")
-            history.add(post_id)
 
     save_history(history)
+
 
 if __name__ == "__main__":
     main()
