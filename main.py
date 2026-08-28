@@ -20,7 +20,7 @@ CHAT_ID = os.environ.get("CHAT_ID", "@wonhee_thief")
 TOPIC_ID_REDDIT = int(os.environ.get("TOPIC_ID_REDDIT", "35"))
 TOPIC_ID_DC = int(os.environ.get("TOPIC_ID_DC", "41"))
 
-SUBREDDIT = os.environ.get("SUBREDDIT", "wonhee+minju_")
+SUBREDDIT = os.environ.get("SUBREDDIT", "wonhee+minju_+minjupark+Illit_Hotties")
 GALLERY_ID = os.environ.get("GALLERY_ID", "wonhee")
 
 # Reddit은 RSS에서 한 번에 많이 가져오기 어렵기 때문에
