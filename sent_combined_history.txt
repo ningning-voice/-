@@ -68,6 +68,8 @@ dc_18030
 dc_18031
 dc_18047
 dc_18048
+dc_18049
+dc_18050
 dc_18060
 reddit_t3_1vgzl4m
 reddit_t3_1vi8oxq
@@ -118,3 +120,4 @@ reddit_t3_1w1otx4
 reddit_t3_1w205jc
 reddit_t3_1w281xd
 reddit_t3_1w29xb5
+reddit_t3_1w2m7o3
