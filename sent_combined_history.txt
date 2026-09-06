@@ -83,6 +83,7 @@ dc_18118
 dc_18119
 dc_18128
 dc_18129
+dc_18162
 reddit_t3_1vgzl4m
 reddit_t3_1vi8oxq
 reddit_t3_1viu4ah
@@ -148,3 +149,8 @@ reddit_t3_1w80ha0
 reddit_t3_1w8513i
 reddit_t3_1w8b9tq
 reddit_t3_1w8tuel
+reddit_t3_1w8wq28
+reddit_t3_1w8wqga
+reddit_t3_1w8wvoz
+reddit_t3_1w8wz7n
+reddit_t3_1w8x0q4
