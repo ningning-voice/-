@@ -95,6 +95,7 @@ dc_18210
 dc_18223
 dc_18224
 dc_18228
+dc_18240
 reddit_t3_1vgzl4m
 reddit_t3_1vi8oxq
 reddit_t3_1viu4ah
@@ -176,3 +177,5 @@ reddit_t3_1wbby5y
 reddit_t3_1wcxgyq
 reddit_t3_1wds9jt
 reddit_t3_1we3o5i
+reddit_t3_1we90s1
+reddit_t3_1web9qs
