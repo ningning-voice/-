@@ -102,6 +102,8 @@ dc_18271
 dc_18272
 dc_18281
 dc_18282
+dc_18283
+dc_18287
 reddit_t3_1vgzl4m
 reddit_t3_1vi8oxq
 reddit_t3_1viu4ah
@@ -192,3 +194,4 @@ reddit_t3_1wfwai7
 reddit_t3_1wg1app
 reddit_t3_1wgctkd
 reddit_t3_1wgg1r5
+reddit_t3_1wgwa13
